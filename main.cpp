@@ -241,6 +241,7 @@ Vector getColor(Ray& ray, Scene& scene, Vector& light_source, double& I, int max
     Ray light_ray = Ray(light_source, omega);
 
     double eps = 0.01; 
+    
 
     // Check if the the closest sphere is a mirror or not
     if (closest_sphere.is_mirror){
