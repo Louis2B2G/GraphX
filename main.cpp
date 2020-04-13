@@ -224,7 +224,7 @@ Vector getColor(Ray& ray, Scene& scene, Vector& light_source, double& I, int max
             if (norm(ray.O - Q) < smallest_distance_to_pixel){
                 // check that it's not behind the camera
                 Vector t = (ray.O - Q) ; t.normalize();
-                if (norm(ray.u - t) == 0){
+                if (norm(ray.u - t) != 0){
                     closest_sphere = s; 
                     P = Q; 
                     smallest_distance_to_pixel = norm(ray.O - Q);
@@ -240,9 +240,8 @@ Vector getColor(Ray& ray, Scene& scene, Vector& light_source, double& I, int max
     Vector omega = light_source - P ; omega.normalize();
     Ray light_ray = Ray(light_source, omega);
 
-    double eps = 0.01; 
+    double eps = pow(1, -4); 
     
-
     // Check if the the closest sphere is a mirror or not
     if (closest_sphere.is_mirror){
         Vector reflected_dir = ray.u - 2*dot(ray.u, N)*N;
