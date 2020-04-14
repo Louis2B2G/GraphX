@@ -83,11 +83,18 @@ Vector operator*(double lambda, const Vector& v) {
     return Vector(v[0]*lambda, v[1]*lambda, v[2]*lambda);
 };
 
+// printing
+ostream& operator<<(ostream &out, Vector const& v) {
+    out << "Vector(" << v[0] << "," << v[1] << "," << v[2] << ")";
+    return out;
+};
+
 
 // Intersection structure 
 struct Intersection{
     bool intersection_exists; // bool saying if there's an intersection
-    std::vector<Vector> points; // list of points of intersection
+    Vector P; // Closest point of intersection
+    Vector N; // vector normal to point of intersection
 };
 
 
@@ -104,6 +111,12 @@ class Ray {
         };
 };
 
+//printing
+ostream& operator<<(ostream &out, Ray const& ray) {
+    out << "Ray(" << ray.O << "," << ray.u << ")";
+    return out;
+};
+
 // Sphere Class Definition
 class Sphere { 
     public:
@@ -111,42 +124,65 @@ class Sphere {
         double R; // radius
         Vector albedo; // rgb color of the sphere
         bool is_mirror; // whether it is a mirror
+        int ID; // identification number
 
-        explicit Sphere(Vector center, double r, Vector color, bool is_a_mirror){ 
+        explicit Sphere(Vector center, double r, Vector color, bool is_a_mirror, int id){ 
             C = center;
             R = r;
             albedo = color;
             is_mirror = is_a_mirror;
+            ID = id; 
         };
+        
+        // default constructor if no arguments are offered
+        Sphere(){
+            C = Vector(0,0,0);
+            R = 0; 
+            albedo = Vector(0,0,0); 
+            is_mirror = false; 
+            ID = 0;
+        }
 
         // Where does the sphere intersect with a given ray?
         Intersection intersection(Ray ray){
             struct Intersection inter;
             double discr = pow(dot(ray.u, ray.O - C), 2) - (dot(ray.O - C, ray.O -C) - pow(R,2));
+            inter.intersection_exists = false;
             // if the discriminant is negative, there are no intersections
             if (discr < 0){
-                inter.intersection_exists = false;
                 return inter;
             }
-
-            inter.intersection_exists = true;
-
-            double t1 = dot(ray.u, C - ray.O) - sqrt(discr);
+            
+            double t1 = dot(ray.u, C - ray.O) + sqrt(discr);
             double t2 = dot(ray.u, C - ray.O) - sqrt(discr);
 
-            Vector P1 = ray.O + t1 * ray.u;
-            Vector P2 = ray.O + t2 * ray.u;
-
-            std::vector<Vector> points; 
-            points.push_back(P1);
-
-            if (discr != 0){
-                points.push_back(P2);
+            // we only consider the root with t > 0
+            if (std::max(t1,t2) < 0.){
+                return inter;
             }
-            
-            inter.points = points;
+        
+            double t = std::min(t1,t2); // keep the smallest positive root (we want the closest one)
+            inter.intersection_exists = true;
+            Vector P = ray.O + t*ray.u;
+
+            // Find the normal vector to the sphere at P
+            Vector N = P - C ; N.normalize(); 
+
+            inter.P = P;
+            inter.N = N; 
+
             return inter;
         };
+};
+
+// Printing
+ostream& operator<<(ostream &out, Sphere const& s) {
+    out << "Sphere(ID=" << s.ID <<")";
+    return out;
+};
+
+struct Scene_Intersection : Intersection{
+    Sphere s; // the object being intersected
 };
 
 // Scene Class Definition
@@ -157,25 +193,41 @@ class Scene {
         explicit Scene(std::vector<Sphere>& sphere_list){
             spheres = sphere_list;
         };
+
+        Scene_Intersection intersection(Ray ray){
+            struct Scene_Intersection intersection;
+            intersection.intersection_exists = false; // default
+            double smallest_distance = std::numeric_limits<double>::infinity(); //initalize as infinity
+            Sphere closest_sphere = Sphere();
+            Vector P; //closest point
+            Vector N; 
+
+            for (auto s : spheres){
+                Intersection inter = s.intersection(ray);
+                if (inter.intersection_exists){
+                    intersection.intersection_exists = true;
+                    double distance = norm(ray.O - inter.P); 
+                    if (distance < smallest_distance){
+                        smallest_distance = distance;
+                        P = inter.P;
+                        N = inter.N;
+                        closest_sphere = s; 
+                    }
+                }
+            }
+            
+            intersection.P = P;
+            intersection.N = N;
+            intersection.s = closest_sphere; 
+            return intersection; 
+        }
 };
 
-// Printing Functions
-ostream& operator<<(ostream &out, Vector const& v) {
-    out << "Vector(" << v[0] << "," << v[1] << "," << v[2] << ")";
-    return out;
-};
-ostream& operator<<(ostream &out, Sphere const& s) {
-    out << "Sphere(" << s.C << "," << s.R << "," << s.albedo << "," << s.is_mirror << ")";
-    return out;
-};
-ostream& operator<<(ostream &out, Ray const& ray) {
-    out << "Ray(" << ray.O << "," << ray.u << ")";
-    return out;
-};
 ostream& operator<<(ostream &out, Scene const& scene) {
-    out << "Scene(";
+    out << "Scene{";
     for (std::vector<Sphere>::const_iterator i = scene.spheres.begin(); i != scene.spheres.end(); ++i)
-        std::cout << *i << ',';
+        out << *i << ',' << "\n";
+    out << "}\n";
     return out;
 };
 
@@ -183,88 +235,46 @@ Vector pixel_to_coordinate(Vector camera, double x, double y, double dist_from_s
     return Vector(camera[0] + x + 0.5 - W/2, camera[1] + y + 0.5 - H/2, camera[2] - dist_from_screen);
 };
 
-// determine if P can be reached by the light source
-bool is_visible(Ray light_ray, Vector P, Scene scene){ 
-    // gotta loop through the other spheres and check their intersection with light_ray and make sure it's null OR that its further away than P
-    for (auto s : scene.spheres){
-        struct Intersection inter = s.intersection(light_ray);
-        if (inter.intersection_exists){
-            // look through all of the points of intersection
-            for (auto Q : inter.points){
-                // check if the point of intersection is closer to the light source than P
-                if (norm(light_ray.O - Q) < norm(light_ray.O - P)){
-                    // make sure it's not in the wrong direction (on the other side of the ray)
-                    if (norm(Q - P) < norm(light_ray.O - P)){
-                        return false;
-                    }
-                }
-            }
-        }
-    }
-    return true;
-};
-
 Vector getColor(Ray& ray, Scene& scene, Vector& light_source, double& I, int max_depth){
-
     if (max_depth == 0){
-        return Vector(1,1,1); // if maximum recusive depth is reached
+        return Vector(0,0,0); // if maximum recusive depth is reached
     }
 
-    // Find the closest sphere
-    double smallest_distance_to_pixel =  std::numeric_limits<double>::infinity(); //initalize as infinity
-    Sphere closest_sphere = Sphere(Vector(0,0,0), 0, Vector(0,0,0), false);
-    Vector P; //closest point on a sphere
+    // Find the intersection with the closest sphere, s, and get the point, P, and the vector normal to it, N
+    Scene_Intersection scene_intersection = scene.intersection(ray);
+    Sphere s = scene_intersection.s;
+    Vector P = scene_intersection.P; 
+    Vector N = scene_intersection.N;
 
-    // loop through all spheres / intersections of those spheres with the ray and find the closest one that's
-    // in front of the camera
-    for (auto s: scene.spheres){
-        struct Intersection inter = s.intersection(ray);
-        for (auto Q : inter.points){
-            // check if the point of intersection is closer to the source than P
-            if (norm(ray.O - Q) < smallest_distance_to_pixel){
-                // check that it's not behind the camera
-                Vector t = (ray.O - Q) ; t.normalize();
-                if (norm(ray.u - t) != 0){
-                    closest_sphere = s; 
-                    P = Q; 
-                    smallest_distance_to_pixel = norm(ray.O - Q);
-                }
-            }
-        } 
-    }
+    double eps = pow(10, -4); 
+    P  = P + eps*N; // Offset P (in case of noise)
 
-    // Find the normal vector to the sphere at P
-    Vector N = P - closest_sphere.C ; N.normalize(); 
-
-    // Find omega and the light ray. Omega is the vector pointing from the light source in the direction of P
-    Vector omega = light_source - P ; omega.normalize();
-    Ray light_ray = Ray(light_source, omega);
-
-    double eps = pow(1, -4); 
-    
     // Check if the the closest sphere is a mirror or not
-    if (closest_sphere.is_mirror){
-        Vector reflected_dir = ray.u - 2*dot(ray.u, N)*N;
-        P += eps*N;
+    if (s.is_mirror){
+        Vector reflected_dir = ray.u - 2*(dot(ray.u, N)*N);
         Ray reflected_ray = Ray(P, reflected_dir);
         // find the color of the object that the reflected ray ends up hitting
-        if (max_depth < 5){
-            cout << "Closest sphere:" << closest_sphere << "\n";
-        }
         return getColor(reflected_ray, scene, light_source, I, max_depth-1);
     }
-    else {    
-        if (max_depth < 5){
-            cout << "Closest sphere:" << closest_sphere << "\n \n \n";
-        }
-        P += eps*N; // Offset P (in case of noise)
-        Vector lambertian_reflection_intensity = I / (4*M_PI*dot(light_source-P, light_source-P)) * (1/M_PI) * closest_sphere.albedo * is_visible(light_ray, P, scene) * std::max(0., dot(N, omega));
+    else {   
+        // Find omega and the light ray. Omega is the vector pointing from P in the direction of the light source
+        Vector omega = light_source - P ; omega.normalize();
+        Ray omega_ray = Ray(P, omega); 
+        bool is_visible; 
+
+        // Visible if the ray has no intersection closer ||S-P||, i.e. nothing is blocking it from 
+        // reaching the light source
+        if (norm(scene.intersection(omega_ray).P - P) > norm(light_source-P)){is_visible = true;}
+        else{is_visible = false;}
+
+        Vector lambertian_reflection_intensity = I / (4*M_PI*dot(light_source-P, light_source-P)) * (1/M_PI) * s.albedo * is_visible * std::max(0., dot(N, omega));
+    
         return lambertian_reflection_intensity;
     }
 };
 
 int main(){
-    int W = 500 ; int H = 500; // width and height of image
+    int W = 1000 ; int H = 1000; // width and height of image
     unsigned char image[W * H * 3]; //image using row major ordering
 
     /*
@@ -274,20 +284,22 @@ int main(){
     */
 
     // Define the walls
-    Sphere wall1 = Sphere(Vector(0,-1000,0), 990, Vector(0, 0, 1), false);
-    Sphere wall2 = Sphere(Vector(0, 0, -1000), 940, Vector(0, 1, 0), false);
-    Sphere wall3 = Sphere(Vector(0, 1000, 0), 940, Vector(1, 0, 0), false);
-    Sphere wall4 = Sphere(Vector(0, 0, 1000), 940, Vector(0.5, 0, 0.5), false);
+    Sphere wall1 = Sphere(Vector(0,-1000,0), 990, Vector(0, 0, 1), false, 1);
+    Sphere wall2 = Sphere(Vector(0, 0, -1000), 940, Vector(0, 1, 0), false, 2);
+    Sphere wall3 = Sphere(Vector(0, 1000, 0), 940, Vector(1, 0, 0), false, 3);
+    Sphere wall4 = Sphere(Vector(0, 0, 1000), 940, Vector(0.5, 0, 0.5), false, 4);
+    Sphere wall5 = Sphere(Vector(1000, 0, 0), 940, Vector(0.5, 0.7, 0.9), false, 5);
+    Sphere wall6 = Sphere(Vector(-1000, 0, 0), 940, Vector(1, 1, 0), false, 6);
 
     // Define the light source
-    Vector light_source = Vector(-10, 50, 40);
-    double I = pow(10,5) ; // light intensity
+    Vector light_source = Vector(-10, 20, 40);
+    double I = 2*pow(10,5) ; // light intensity
 
     // gamma for gamma correction
-    double gamma = 2.9; 
+    double gamma = 2.2; 
 
     // initialize camera at (0,0,55)
-    Vector camera = Vector(0, 0, 55);
+    Vector camera = Vector(0, 0, 70);
 
     // Set the horizontal field of view to 60 degrees
     double fov = 60.0;
@@ -295,16 +307,22 @@ int main(){
     // Get distance from the camera to the screen (pixel grid)
     double dist_from_screen = W / (2*tan( (fov * M_PI / 180) / 2));
 
-    // put a sphere in the middle of the room at (0, 0, 0)
-    Sphere sphere = Sphere(Vector(0,0,0), 10, Vector(1, 1, 1), true);
+    // put some spheres in the room
+    Sphere sphere1 = Sphere(Vector(0,0,0), 10, Vector(1, 1, 1), true, 7);
+    Sphere sphere2 = Sphere(Vector(25, 0,0), 10, Vector(1, 1, 1), false, 8);
+    Sphere sphere3 = Sphere(Vector(-15, -5, 30), 5, Vector(1, 1, 0), false, 9);
 
     // Set the scene
     std::vector<Sphere> objects_in_room; 
-    objects_in_room.push_back(sphere);
+    objects_in_room.push_back(sphere1);
+    objects_in_room.push_back(sphere2);
+    objects_in_room.push_back(sphere3);
     objects_in_room.push_back(wall1);
     objects_in_room.push_back(wall2);
     objects_in_room.push_back(wall3);
     objects_in_room.push_back(wall4);
+    objects_in_room.push_back(wall5);
+    objects_in_room.push_back(wall6);
     Scene scene = Scene(objects_in_room);
 
     for (int x = 0 ; x < W ; x++){
