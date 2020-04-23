@@ -4,6 +4,10 @@
 #include <string>
 #include <iostream>
 #include <vector> 
+#include <stdlib.h> 
+#include <time.h>
+#include <chrono> 
+using namespace std::chrono; 
 using namespace std;
 
 // Vector Class Definition
@@ -70,6 +74,16 @@ double dot(const Vector& v, const Vector& w){
     return v[0]*w[0] + v[1]*w[1] + v[2]*w[2];
 };
 
+// Croos product
+Vector cross(const Vector& v, const Vector& w){
+    return Vector(v[1]*w[2] - v[2]*w[1], v[2]*w[0] - v[0]*w[2], v[0]*w[1] - v[1]*w[0]);
+};
+
+// Pointwise multiplication
+Vector mult(const Vector& v, const Vector& w){
+    return Vector(v[0]*w[0], v[1]*w[1], v[2]*w[2]);
+};
+
 // Norm
 double norm(const Vector& v){
     return sqrt(dot(v, v));
@@ -107,6 +121,12 @@ class Ray {
             O = origin;
             u = direction;
         };
+
+        // default constructor if no arguments are given
+        Ray(){
+            O = Vector();
+            u = Vector(); u.normalize();
+        }
 };
 
 //printing
@@ -231,6 +251,40 @@ Vector pixel_to_coordinate(Vector camera, double x, double y, double dist_from_s
     return Vector(camera[0] + x + 0.5 - W/2, camera[1] + y + 0.5 - H/2, camera[2] - dist_from_screen);
 };
 
+Vector random_cos(Vector N){
+    // get r1,r2 ~ U([0,1])
+    double r1 = ((double) rand() / (RAND_MAX));
+    double r2 = ((double) rand() / (RAND_MAX));
+
+    double x = cos(2*M_PI*r1)*sqrt(1-r2);
+    double y = sin(2*M_PI*r1)*sqrt(1-r2);
+    double z = sqrt(r2);
+
+    Vector T1;
+    if ((pow(N[0], 2) < pow(N[1], 2)) && (pow(N[0], 2) < pow(N[2], 2))){
+        T1[0] = 0;
+        // swap the values of the other 2 and negate one of them
+        T1[1] = N[2];
+        T1[2] = -1*N[1];  
+    }
+    else if ((pow(N[1], 2) < pow(N[0], 2)) && (pow(N[1], 2) < pow(N[2], 2))){
+        T1[1] = 0;
+        // swap the values of the other 2 and negate one of them
+        T1[0] = N[2];
+        T1[2] = -1*N[0];  
+    }
+    else{
+        T1[2] = 0;
+        // swap the values of the other 2 and negate one of them
+        T1[0] = N[1];
+        T1[1] = -1*N[0];  
+    }
+
+    T1.normalize();
+    Vector T2 = cross(N, T1);
+    return x*T1 + y*T2 + z*N; 
+}
+
 Vector getColor(Ray& ray, Scene& scene, Vector& light_source, double& I, int max_depth){
     if (max_depth == 0){
         return Vector(0,0,0); // if maximum recusive depth is reached
@@ -252,27 +306,44 @@ Vector getColor(Ray& ray, Scene& scene, Vector& light_source, double& I, int max
         return getColor(reflected_ray, scene, light_source, I, max_depth-1);
     }
     else {   
+        // DIRECT LIGHTING
         // Find omega and the light ray. Omega is the vector pointing from P in the direction of the light source. d is the distance from P to the light source
         Vector omega = light_source - P ; omega.normalize();
         Ray omega_ray = Ray(P, omega); 
         double d = norm(light_source-P); 
 
+        Vector L0; 
+
         // if omega_ray has no intersection closer than ||light_source-P||, i.e. nothing is blocking it from reaching the light source
         if (norm(scene.intersection(omega_ray).P - P) > d){
             // return the color of the pixel
-            return I / (4*M_PI*pow(d, 2)) * (1/M_PI) * s.albedo * std::max(0., dot(N, omega));
+            L0 =  I / (4*M_PI*pow(d, 2)) * (1/M_PI) * s.albedo * std::max(0., dot(N, omega));
         }
         else {
             // if it is not visible, the pixel is black (shadow)
-            return Vector(0,0,0);
+            L0 = Vector(0,0,0);
         }
+
+        // COMBINE WITH INDIRECT LIGHTING
+        // Create  a bunch of random rays (many different paths)
+        int num_paths = 5; 
+        Ray random_ray;
+        for (int i = 0 ; i < num_paths ; i++){
+            random_ray = Ray(P, random_cos(N));
+            L0 += mult(s.albedo, getColor(random_ray, scene, light_source, I, max_depth-1)); 
+        }
+    
+        return L0;
     }
 };
 
 int main(){
-    int W = 1000 ; int H = 1000; // width and height of image
-    unsigned char image[W * H * 3]; //image using row major ordering
+    auto start = high_resolution_clock::now(); // to measure execution time
+    srand(time(NULL)); // for generating random numbers
 
+    int W = 500 ; int H = 500; // width and height of image
+    unsigned char image[W * H * 3]; //image using row major ordering
+    
     // Define the walls
     Sphere wall1 = Sphere(Vector(0,-1000,0), 990, Vector(0, 0, 1), false, 1);
     Sphere wall2 = Sphere(Vector(0, 0, -1000), 940, Vector(0, 1, 0), false, 2);
@@ -315,7 +386,8 @@ int main(){
     objects_in_room.push_back(wall6);
     Scene scene = Scene(objects_in_room);
 
-    int max_depth = 5; 
+    int max_depth = 3; 
+    #pragma omp parallel for schedule(dynamic, 1)
     for (int x = 0 ; x < W ; x++){
         for (int y = 0 ; y < H ; y++){
             // For each pixel (x,y)
@@ -334,11 +406,14 @@ int main(){
             image[y*W*3 + x*3 + 0] = std::min(255., pixel_color[0]);
             image[y*W*3 + x*3 + 1] = std::min(255., pixel_color[1]);
             image[y*W*3 + x*3 + 2] = std::min(255., pixel_color[2]);
-            
         }
     }
     // save the image
     stbi_write_jpg("room.jpg", W, H, 3, image, W * sizeof(int));
+
+    auto stop = high_resolution_clock::now();
+    auto duration = duration_cast<microseconds>(stop - start); 
+    cout << "Rendering time: " << duration.count()*pow(10, -6) << " seconds\n"<< endl; 
 
     return 0;
 };
