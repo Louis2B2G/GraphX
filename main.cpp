@@ -10,6 +10,9 @@
 using namespace std::chrono; 
 using namespace std;
 
+int NUM_CALLS = 0; 
+double EXEC_TIME = 0; 
+
 // Vector Class Definition
 class Vector { 
     private:
@@ -286,6 +289,7 @@ Vector random_cos(Vector N){
 }
 
 Vector getColor(Ray& ray, Scene& scene, Vector& light_source, double& I, int max_depth){
+    NUM_CALLS += 1; 
     if (max_depth == 0){
         return Vector(0,0,0); // if maximum recusive depth is reached
     }
@@ -325,13 +329,8 @@ Vector getColor(Ray& ray, Scene& scene, Vector& light_source, double& I, int max
         }
 
         // COMBINE WITH INDIRECT LIGHTING
-        // Create  a bunch of random rays (many different paths)
-        int num_paths = 5; 
-        Ray random_ray;
-        for (int i = 0 ; i < num_paths ; i++){
-            random_ray = Ray(P, random_cos(N));
-            L0 += mult(s.albedo, getColor(random_ray, scene, light_source, I, max_depth-1)); 
-        }
+        //Ray random_ray = Ray(P, random_cos(N));
+        //L0 = L0 + mult(s.albedo, getColor(random_ray, scene, light_source, I, max_depth-1)); 
     
         return L0;
     }
@@ -386,7 +385,9 @@ int main(){
     objects_in_room.push_back(wall6);
     Scene scene = Scene(objects_in_room);
 
-    int max_depth = 3; 
+    int max_depth = 5; 
+    int num_paths = 32; 
+
     #pragma omp parallel for schedule(dynamic, 1)
     for (int x = 0 ; x < W ; x++){
         for (int y = 0 ; y < H ; y++){
@@ -395,7 +396,17 @@ int main(){
             // find the ray that passes through the pixel, starting from the camera
             Ray ray = Ray(camera, direction);
             // get the pixel's color
-            Vector pixel_color = getColor(ray, scene, light_source, I, max_depth);
+            Vector pixel_color;
+
+            for (int k = 0 ; k < num_paths ; k++){
+                 auto s = high_resolution_clock::now(); 
+                 pixel_color = pixel_color + getColor(ray, scene, light_source, I, max_depth);
+                 auto end = high_resolution_clock::now();
+                 auto d = duration_cast<microseconds>(end - s); 
+                 EXEC_TIME += d.count();
+            }
+
+            pixel_color = pow(num_paths,-1) * pixel_color; 
             // gamma correction
             pixel_color[0] = pow(pixel_color[0], 1/gamma);
             pixel_color[1] = pow(pixel_color[1], 1/gamma);
@@ -413,7 +424,10 @@ int main(){
 
     auto stop = high_resolution_clock::now();
     auto duration = duration_cast<microseconds>(stop - start); 
-    cout << "Rendering time: " << duration.count()*pow(10, -6) << " seconds\n"<< endl; 
+    std::cout << "Rendering time: " << duration.count()*pow(10, -6) << " seconds\n"; 
+    std::cout << "getColor time: " << EXEC_TIME*pow(10, -6) << "\n";
+    cout << "getColor number of calls: " << NUM_CALLS << "\n"; 
+    cout << "Average running time getColor: " << EXEC_TIME*pow(10, -6) / NUM_CALLS << "\n";
 
     return 0;
 };
