@@ -770,7 +770,7 @@ int main(){
     double gamma = 2.2; 
 
     // initialize camera location
-    Vector camera = Vector(7, 0, 50);
+    Vector camera = Vector(0, 0, 60);
 
     // Set the horizontal field of view
     double fov = 60.0;
@@ -784,11 +784,12 @@ int main(){
     Sphere* sphere3 = new Sphere(Vector(-15, -5, 30), 5, Vector(1, 1, 0), "none", 8);
 
     // Load the cat object
-    const char* filename = "Knuckles/knuckles.obj";
-    TriangleMesh* cat = new TriangleMesh();
-    cat -> readOBJ(filename);
-    cat -> is_mirror = true; 
-    cat -> resize(2, Vector(0, -10, 30));
+    const char* filename = "Cat/cat.obj";
+    TriangleMesh* cat1 = new TriangleMesh();
+    cat1 -> readOBJ(filename);
+    cat1 -> is_mirror = false; 
+    cat1 -> albedo = Vector(0.1,0.1,0.1);
+    cat1 -> resize(0.2, Vector(0.2, -10, 30));
  
     // Set the scene
     std::vector<Geometry*> objects_in_room; 
@@ -798,14 +799,14 @@ int main(){
     objects_in_room.push_back(wall4);
     objects_in_room.push_back(wall5);
     objects_in_room.push_back(wall6);
-    //objects_in_room.push_back(sphere1);
-    //objects_in_room.push_back(sphere2);
-    //objects_in_room.push_back(sphere3);
-    objects_in_room.push_back(cat);
+    objects_in_room.push_back(sphere1);
+    objects_in_room.push_back(sphere2);
+    objects_in_room.push_back(sphere3);
+    objects_in_room.push_back(cat1);
     Scene* scene = new Scene(objects_in_room);
 
     int max_depth = 5; 
-    int num_paths = 5; 
+    int num_paths = 32; 
     double stdv = 0.5; 
 
     #pragma omp parallel for schedule(dynamic, 1)
@@ -838,7 +839,7 @@ int main(){
         }
     }
     // save the image
-    stbi_write_jpg("Images/knuckles.jpg", W, H, 3, image, W * sizeof(int));
+    stbi_write_jpg("Images/cat.jpg", W, H, 3, image, W * sizeof(int));
 
     auto stop = high_resolution_clock::now();
     auto duration = duration_cast<microseconds>(stop - start); 
