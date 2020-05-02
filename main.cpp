@@ -784,7 +784,7 @@ int main(){
     Sphere* sphere3 = new Sphere(Vector(-15, -5, 30), 5, Vector(1, 1, 0), "none", 8);
 
     // Load the cat object
-    const char* filename = "Cat/cat.obj";
+    const char* filename = "Meshes/Cat/cat.obj";
     TriangleMesh* cat1 = new TriangleMesh();
     cat1 -> readOBJ(filename);
     cat1 -> is_mirror = false; 
@@ -839,7 +839,7 @@ int main(){
         }
     }
     // save the image
-    stbi_write_jpg("Images/cat.jpg", W, H, 3, image, W * sizeof(int));
+    stbi_write_jpg("Outputs/cat.jpg", W, H, 3, image, W * sizeof(int));
 
     auto stop = high_resolution_clock::now();
     auto duration = duration_cast<microseconds>(stop - start); 
