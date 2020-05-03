@@ -161,7 +161,9 @@ class Geometry{
         virtual Intersection intersection(Ray ray) = 0;
         virtual std::string to_string() = 0; 
         bool is_mirror; 
+        bool is_transparent;
         bool is_mesh;
+        double refractive_index; 
         Vector albedo; 
         int ID; 
 };  
@@ -183,6 +185,7 @@ class Sphere : public Geometry {
             R = r;
             albedo = color;
             is_mirror = (material == "mirror");
+            is_transparent = (material == "transparent");
             is_mesh = false;
             ID = id; 
         };
@@ -678,6 +681,61 @@ void boxMuller(double standard_deviation, double &x, double &y){
 
 /* ------------------------------------------------------------------------------------------------------------------------
 
+Reflection
+
+------------------------------------------------------------------------------------------------------------------------ */
+// defining the function, which is implemented further down
+Vector getColor(Ray& ray, Scene* scene, Vector* light_source, double& I, int max_depth);
+
+Vector reflect(Ray& ray, Scene* scene, Vector* light_source, double& I, Vector& P, Vector& N, int max_depth){
+    Vector reflected_dir = ray.u - 2*(dot(ray.u, N)*N);
+    Ray reflected_ray = Ray(P, reflected_dir);
+    // find the color of the object that the reflected ray ends up hitting
+    return getColor(reflected_ray, scene, light_source, I, max_depth-1);
+};
+
+
+/* ------------------------------------------------------------------------------------------------------------------------
+
+Refraction
+
+------------------------------------------------------------------------------------------------------------------------ */
+
+Vector refract(Ray& ray, Scene* scene, Vector* light_source, double& I, Vector& P, Vector& N, double n1, double n2, int max_depth){
+    Vector wT = (n1/n2) * (ray.u - dot(ray.u,N)*N);
+    double val = 1-pow(n1/n2,2)*(1- pow(dot(ray.u,N),2));
+    Ray new_ray;
+
+    if (val < 0){
+        new_ray = Ray(P,ray.u - 2*dot(ray.u,N)*N);
+        return getColor(new_ray, scene, light_source, I, max_depth-1);
+    }
+    else {
+        N = -1*N;
+        new_ray = Ray(P - N *0.02, wT + sqrt(val)*N);
+        return getColor(new_ray, scene, light_source, I, max_depth-1);
+    }
+};
+
+/* ------------------------------------------------------------------------------------------------------------------------
+
+Fresnel Law
+
+------------------------------------------------------------------------------------------------------------------------ */
+
+Vector fresnel(Ray& ray, Scene* scene, Vector* light_source, double& I, Vector& P, Vector& N, double n1, double n2, int max_depth){
+    double k0 = pow((n1-n2),2) / pow((n1+n2),2);
+    double R = k0 + ((1-k0) * pow(1-abs(dot(N,ray.u)), 5));
+    double T = 1-R;
+    double u = ((double) rand() / (RAND_MAX));
+
+    if (u < R) return reflect(ray, scene, light_source, I, P, N, max_depth);  // reflect
+    else return refract(ray, scene, light_source, I, P, N, n1, n2, max_depth);  // refract
+}
+
+
+/* ------------------------------------------------------------------------------------------------------------------------
+
 Gives the color value of a given pixel
 
 ------------------------------------------------------------------------------------------------------------------------ */
@@ -690,25 +748,28 @@ Vector getColor(Ray& ray, Scene* scene, Vector* light_source, double& I, int max
     // Find the intersection with the closest object and get the intersection point, P, and the vector normal to it, N
     Scene_Intersection scene_intersection = scene->intersection(ray);
     Geometry* object = scene_intersection.object;
-    
-    Vector P = scene_intersection.P; 
-    Vector N = scene_intersection.N;
+    Vector P = scene_intersection.P, N = scene_intersection.N;
 
-    double eps = pow(10, -4); P  = P + eps*N; // Offset P (in case of noise)
+    // Offset P in case of noise
+    double eps = pow(10, -4); P  = P + eps*N; 
     
-    // Check if the the closest object is a mirror or not
-    if (object->is_mirror){
-        Vector reflected_dir = ray.u - 2*(dot(ray.u, N)*N);
-        Ray reflected_ray = Ray(P, reflected_dir);
-        // find the color of the object that the reflected ray ends up hitting
-        return getColor(reflected_ray, scene, light_source, I, max_depth-1);
+    // Reflect the ray if the object is a mirror
+    if (object->is_mirror) return reflect(ray, scene, light_source, I, P, N, max_depth);
+
+    // Case where the object is transparent (Refraction)
+    if (object -> is_transparent){
+        double n1,n2;
+
+        if (dot(ray.u, N) > 0){ n1 = object->refractive_index; n2 = 1;} 
+        else { N = -1*N; n1 = 1; n2 = object->refractive_index;}
+
+        // Apply Fresnel law
+        return fresnel(ray, scene, light_source, I, P, N, n1, n2, max_depth);
     }
     
     // Case where you have a colored mesh
     /*
     if (object -> is_mesh){
-
-
     }
     */
 
@@ -779,9 +840,10 @@ int main(){
     double dist_from_screen = W / (2*tan( (fov * M_PI / 180) / 2));
 
     // put some spheres in the room
-    Sphere* sphere1 = new Sphere(Vector(0,0,0), 10, Vector(1, 1, 1),  "mirror", 6);
-    Sphere* sphere2 = new Sphere(Vector(25, 0,0), 10, Vector(1, 1, 1),  "none", 7);
+    Sphere* sphere1 = new Sphere(Vector(0,0,0), 10, Vector(1, 1, 1),  "none", 6);
+    Sphere* sphere2 = new Sphere(Vector(25, 0, 0), 10, Vector(1, 1, 1),  "transparent", 7);
     Sphere* sphere3 = new Sphere(Vector(-15, -5, 30), 5, Vector(1, 1, 0), "none", 8);
+    sphere2 -> refractive_index = 1.5; 
 
     // Load the cat object
     const char* filename = "Meshes/Cat/cat.obj";
@@ -790,6 +852,7 @@ int main(){
     cat1 -> is_mirror = false; 
     cat1 -> albedo = Vector(0.1,0.1,0.1);
     cat1 -> resize(0.2, Vector(0.2, -10, 30));
+    
  
     // Set the scene
     std::vector<Geometry*> objects_in_room; 
@@ -802,12 +865,12 @@ int main(){
     objects_in_room.push_back(sphere1);
     objects_in_room.push_back(sphere2);
     objects_in_room.push_back(sphere3);
-    objects_in_room.push_back(cat1);
+    //objects_in_room.push_back(cat1);
     Scene* scene = new Scene(objects_in_room);
 
     int max_depth = 5; 
-    int num_paths = 32; 
-    double stdv = 0.5; 
+    int num_paths = 1000; 
+    double stdv = 0.3; 
 
     #pragma omp parallel for schedule(dynamic, 1)
     for (int x = 0 ; x < W ; x++){
@@ -839,7 +902,7 @@ int main(){
         }
     }
     // save the image
-    stbi_write_jpg("Outputs/cat.jpg", W, H, 3, image, W * sizeof(int));
+    stbi_write_jpg("Outputs/refraction.jpg", W, H, 3, image, W * sizeof(int));
 
     auto stop = high_resolution_clock::now();
     auto duration = duration_cast<microseconds>(stop - start); 
