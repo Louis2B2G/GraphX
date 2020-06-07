@@ -335,18 +335,23 @@ Rescales the data so that the vertices are between 0 and 1
 
 
 void rescale(std::vector<Polygon> &data){
-    double avx = 0, avy = 0, n = 0;
+    double minx = INF, maxx = -INF; 
+    double miny = INF, maxy = -INF;
+    int n = 0;  
+
     for (auto polygon : data){
         for (int i = 0 ; i < polygon.vertices.size(); i++){
-            avx += polygon.vertices[i].x;
-            avy += polygon.vertices[i].y;
+            if (polygon.vertices[i].x < minx) minx = polygon.vertices[i].x;
+            if (polygon.vertices[i].y < miny) miny = polygon.vertices[i].y;
+            if (polygon.vertices[i].x > maxx) maxx = polygon.vertices[i].x;
+            if (polygon.vertices[i].y > maxy) maxy = polygon.vertices[i].y;
         }
         n += 1; 
     }
     for (int i = 0; i < n; i++){
         for (int k = 0 ; k < data[i].vertices.size(); k++){
-            data[i].vertices[k].x *= 1/avx;
-            data[i].vertices[k].y *= 1/avy; 
+            data[i].vertices[k].x = (data[i].vertices[k].x - minx) / (maxx - minx) ;
+            data[i].vertices[k].y = (data[i].vertices[k].y - miny) / (maxy - miny) ;
         }
     }
 }
@@ -386,18 +391,19 @@ int main(){
 
     std::vector<Vector> data = {};
     std::vector<double> weights = {};
-    for (int i = 0 ; i < 5 ; i++){
-        for (int j = 0; j < 5 ; j++){
-            data.push_back(Vector(i, j));
+    for (int i = 0 ; i < 100 ; i++){
+        for (int j = 0; j < 100 ; j++){
+            data.push_back(Vector(pow(i,1) + j, pow(j,1) + i));
             weights.push_back(1);
         }
     }
+
+    //std::vector<Vector> data = {Vector(0,0), Vector(2, 1), Vector(0,2)};
+    //std::vector<double> weights = {1,1,1};
     
     std::vector<Polygon> diagram = getVoronoi(data, weights);
-    std::cout<< diagram[1].vertices[3].to_string();
-    rescale(diagram);
-    std::cout<< diagram[1].vertices[3].to_string();
 
+    rescale(diagram);
     save_svg(diagram, "diagram.svg");
     return 0;
 }
