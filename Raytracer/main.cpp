@@ -709,10 +709,12 @@ Vector refract(Ray& ray, Scene* scene, Vector* light_source, double& I, Vector& 
     if (val < 0){
         new_ray = Ray(P,ray.u - 2*dot(ray.u,N)*N);
         return getColor(new_ray, scene, light_source, I, max_depth-1);
+       // std::cout << "outgoing: " << new_ray.to_string() << "\n"; exit(0);
     }
     else {
         N = -1*N;
         new_ray = Ray(P - N *0.02, wT + sqrt(val)*N);
+        //std::cout << "outgoing: " << new_ray.to_string() << "\n"; exit(0);
         return getColor(new_ray, scene, light_source, I, max_depth-1);
     }
 };
@@ -724,13 +726,14 @@ Fresnel Law
 ------------------------------------------------------------------------------------------------------------------------ */
 
 Vector fresnel(Ray& ray, Scene* scene, Vector* light_source, double& I, Vector& P, Vector& N, double n1, double n2, int max_depth){
+    //std::cout << "incoming: " << ray.to_string() << "\n";
     double k0 = pow((n1-n2),2) / pow((n1+n2),2);
     double R = k0 + ((1-k0) * pow(1-abs(dot(N,ray.u)), 5));
     double T = 1-R;
     double u = ((double) rand() / (RAND_MAX));
 
-    if (u < R) return reflect(ray, scene, light_source, I, P, N, max_depth);  // reflect
-    else return refract(ray, scene, light_source, I, P, N, n1, n2, max_depth);  // refract
+    /*if (u < R) return reflect(ray, scene, light_source, I, P, N, max_depth);*/ // reflect
+    return refract(ray, scene, light_source, I, P, N, n1, n2, max_depth);  // refract
 }
 
 
@@ -759,10 +762,12 @@ Vector getColor(Ray& ray, Scene* scene, Vector* light_source, double& I, int max
     // Case where the object is transparent (Refraction)
     if (object -> is_transparent){
         double n1,n2;
-
-        if (dot(ray.u, N) > 0){ n1 = object->refractive_index; n2 = 1;} 
-        else { N = -1*N; n1 = 1; n2 = object->refractive_index;}
-
+        if (dot(ray.u, N) < 0){ 
+            n1 = object->refractive_index; n2 = 1;
+        } 
+        else {
+            N = -1*N; n1 = 1; n2 = object->refractive_index;
+        }
         // Apply Fresnel law
         return fresnel(ray, scene, light_source, I, P, N, n1, n2, max_depth);
     }
@@ -808,6 +813,7 @@ Main function
 
 ------------------------------------------------------------------------------------------------------------------------ */
 
+/*
 int main(){
     auto start = high_resolution_clock::now(); // to measure execution time
     srand(time(NULL)); // for generating random numbers
@@ -853,7 +859,6 @@ int main(){
     cat1 -> albedo = Vector(0.1,0.1,0.1);
     cat1 -> resize(0.2, Vector(0.2, -10, 30));
     
- 
     // Set the scene
     std::vector<Geometry*> objects_in_room; 
     objects_in_room.push_back(wall1);
@@ -869,7 +874,7 @@ int main(){
     Scene* scene = new Scene(objects_in_room);
 
     int max_depth = 5; 
-    int num_paths = 1000; 
+    int num_paths = 32; 
     double stdv = 0.3; 
 
     #pragma omp parallel for schedule(dynamic, 1)
@@ -909,3 +914,4 @@ int main(){
     std::cout << "Rendering time: " << duration.count()*pow(10, -6) << " seconds\n"; 
     return 0;
 };
+*/
