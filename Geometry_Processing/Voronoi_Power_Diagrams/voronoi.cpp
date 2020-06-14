@@ -629,6 +629,7 @@ int main(){
         lambdas[i] = exp(-norm(v - C)/0.02);
     }
 
+
     lambdas = {0, 0, 9};
 
     start = high_resolution_clock::now();
